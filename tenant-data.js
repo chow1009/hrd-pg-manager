@@ -1,1 +1,1 @@
-window.HRD_SEED="+json.dumps(data,ensure_ascii=False,separators=(',',':'))+";
+window.HRD_SEED = {"properties":["HRD Hostel s","Hrd men s Pg 2","Hrd Women s Pg"],"tenants":[]};
