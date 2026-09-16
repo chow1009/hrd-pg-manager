@@ -1,0 +1,9 @@
+{
+  "name":"HRD PG Manager",
+  "short_name":"HRD PG",
+  "start_url":"./",
+  "display":"standalone",
+  "background_color":"#f5f7fb",
+  "theme_color":"#0b1220",
+  "icons":[]
+}
