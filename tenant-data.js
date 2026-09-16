@@ -1,0 +1,1 @@
+window.HRD_SEED="+json.dumps(data,ensure_ascii=False,separators=(',',':'))+";
