@@ -162,7 +162,21 @@ function Invoke-Action {
             }
             'android-dev-build' {
                 Write-Host "Building and launching the real Android HostelHub app..." -ForegroundColor Cyan
-                npx expo run:android
+                $buildLog = Join-Path $root 'android-build.log'
+                if (Test-Path $buildLog) { Remove-Item $buildLog -Force }
+                npx expo run:android *> $buildLog
+                $exit = $LASTEXITCODE
+                Write-Host "Android build exit code: $exit" -ForegroundColor Yellow
+                if (Test-Path $buildLog) {
+                    Write-Host '--- Android build tail ---' -ForegroundColor Yellow
+                    $lines = Get-Content $buildLog -ErrorAction SilentlyContinue
+                    if ($lines.Count -gt 0) {
+                        $start = [Math]::Max(0,$lines.Count-220)
+                        Write-Host (($lines[$start..($lines.Count-1)]) -join [Environment]::NewLine)
+                    }
+                    Write-Host '--- End Android build tail ---' -ForegroundColor Yellow
+                }
+                if ($exit -ne 0) { throw "Android build failed with exit code $exit. See android-build.log in the project root." }
             }
             'android-ui-smoke' {
                 $adb = Get-AdbPath
