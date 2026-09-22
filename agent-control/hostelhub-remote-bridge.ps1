@@ -62,6 +62,16 @@ function Invoke-Action {
                 } else {
                     Write-Host "ADB not found in PATH or standard Android SDK locations" -ForegroundColor Yellow
                 }
+                $log = Join-Path $root 'android-build.log'
+                if (Test-Path $log) {
+                    Write-Host '--- ANDROID BUILD LOG TAIL ---' -ForegroundColor Yellow
+                    $lines = Get-Content $log -ErrorAction SilentlyContinue
+                    if ($lines.Count -gt 0) {
+                        $start = [Math]::Max(0, $lines.Count - 220)
+                        Write-Host (($lines[$start..($lines.Count-1)]) -join [Environment]::NewLine)
+                    }
+                    Write-Host '--- END ANDROID BUILD LOG TAIL ---' -ForegroundColor Yellow
+                }
             }
             'install' {
                 npm install --no-audit --no-fund
