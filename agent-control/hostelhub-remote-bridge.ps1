@@ -49,6 +49,16 @@ function Invoke-Action {
                 if ($adb) {
                     Write-Host "ADB: $adb" -ForegroundColor Yellow
                     & $adb devices
+                    $pkg = (& $adb shell pm list packages 2>$null | Select-String 'com.hrdhostels.app')
+                    if ($pkg) {
+                        Write-Host "HostelHub package is installed." -ForegroundColor Green
+                        & $adb shell am force-stop com.hrdhostels.app
+                        & $adb shell monkey -p com.hrdhostels.app 1
+                        Start-Sleep -Seconds 5
+                        Write-Host "HostelHub launch requested on emulator-5554." -ForegroundColor Green
+                    } else {
+                        Write-Host "HostelHub package com.hrdhostels.app is NOT installed." -ForegroundColor Yellow
+                    }
                 } else {
                     Write-Host "ADB not found in PATH or standard Android SDK locations" -ForegroundColor Yellow
                 }
