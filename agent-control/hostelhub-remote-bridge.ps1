@@ -2,7 +2,7 @@
 # Safe allowlist bridge: only named HostelHub actions are executable.
 $ErrorActionPreference = 'Stop'
 
-$RepoApiUrl = 'https://api.github.com/repos/chow1009/hrd-pg-manager/contents/agent-control/command.json?ref=hostelhub-agent'
+$RepoRawBase = 'https://raw.githubusercontent.com/chow1009/hrd-pg-manager/hostelhub-agent/agent-control'
 $StateDir = Join-Path $env:LOCALAPPDATA 'HostelHub-Agent'
 $StateFile = Join-Path $StateDir 'last-command-id.txt'
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
@@ -115,15 +115,14 @@ function Invoke-Action {
 }
 
 function Get-CommandFile {
-    $api = Invoke-RestMethod -Uri $RepoApiUrl -UseBasicParsing -TimeoutSec 15 -Headers @{
-        'Accept' = 'application/vnd.github+json'
-        'User-Agent' = 'HostelHub-Agent-Bridge'
+    $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $url = "$RepoRawBase/command.json?cb=$stamp"
+    Invoke-RestMethod -Uri $url -UseBasicParsing -TimeoutSec 15 -Headers @{
         'Cache-Control' = 'no-cache'
+        'Pragma' = 'no-cache'
+        'User-Agent' = 'HostelHub-Agent-Bridge'
+        'Accept' = 'text/plain'
     }
-    if (-not $api.content) { throw 'GitHub command file content was empty.' }
-    $bytes = [Convert]::FromBase64String(($api.content -replace '\s',''))
-    $json = [Text.Encoding]::UTF8.GetString($bytes)
-    return ($json | ConvertFrom-Json)
 }
 
 Write-Host ''
