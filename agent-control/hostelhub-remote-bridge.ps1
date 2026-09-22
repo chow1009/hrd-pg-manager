@@ -70,6 +70,19 @@ function Invoke-Action {
                 Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location -LiteralPath '$root'; npx expo start --android"
                 Write-Host "Expo start launched in a new PowerShell window." -ForegroundColor Green
             }
+            'launch-installed' {
+                $adb = Get-AdbPath
+                if (-not $adb) { throw 'ADB executable was not found.' }
+                $devices = & $adb devices | Select-String '\tdevice$'
+                if (-not $devices) { throw 'No Android device is connected to ADB.' }
+                $installed = & $adb shell pm list packages | Select-String 'com.hrdhostels.app'
+                if (-not $installed) { throw 'com.hrdhostels.app is not installed on the connected emulator.' }
+                Write-Host 'HostelHub is installed. Launching it directly...' -ForegroundColor Cyan
+                & $adb shell am force-stop com.hrdhostels.app
+                & $adb shell monkey -p com.hrdhostels.app 1
+                Start-Sleep -Seconds 5
+                Write-Host 'HostelHub launch command completed.' -ForegroundColor Green
+            }
             'android-start-emulator' {
                 $sdk = if ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } elseif ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
                 $emu = Join-Path $sdk 'emulator\emulator.exe'
