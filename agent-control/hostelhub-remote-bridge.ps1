@@ -60,6 +60,30 @@ function Invoke-Action {
                 Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location -LiteralPath '$root'; npx expo start --android"
                 Write-Host "Expo start launched in a new PowerShell window." -ForegroundColor Green
             }
+            'android-dev-build' {
+                Write-Host "Building and launching the real Android HostelHub app..." -ForegroundColor Cyan
+                npx expo run:android
+            }
+            'android-ui-smoke' {
+                $adb = Get-AdbPath
+                if (-not $adb) { throw 'ADB is not installed or not found in standard Android SDK locations.' }
+                & $adb devices
+                & $adb shell am force-stop com.hrdhostels.app
+                & $adb shell monkey -p com.hrdhostels.app 1
+                Start-Sleep -Seconds 8
+                $dump = & $adb shell uiautomator dump /sdcard/hostelhub-window.xml 2>&1
+                Write-Host ($dump -join [Environment]::NewLine)
+                $xml = & $adb shell cat /sdcard/hostelhub-window.xml 2>&1
+                Write-Host '--- UI DUMP ---' -ForegroundColor Yellow
+                Write-Host ($xml -join [Environment]::NewLine)
+                if (($xml -join '') -match 'AI Hostel Manager') {
+                    Write-Host 'ANDROID UI SMOKE: LOGIN SCREEN DETECTED' -ForegroundColor Green
+                } elseif (($xml -join '') -match 'Owner command center') {
+                    Write-Host 'ANDROID UI SMOKE: DASHBOARD DETECTED' -ForegroundColor Green
+                } else {
+                    throw 'ANDROID UI SMOKE: expected HostelHub login/dashboard text was not detected.'
+                }
+            }
             'qa-release' {
                 if (Test-Path (Join-Path $root 'package.json')) {
                     npm run qa:release
