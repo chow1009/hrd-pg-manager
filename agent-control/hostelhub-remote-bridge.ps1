@@ -19,6 +19,19 @@ function Get-ProjectRoot {
     throw "Could not find FINAL HostelHub folder containing package.json under $appRoot"
 }
 
+function Get-AdbPath {
+    $candidates = @()
+    if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe') }
+    if ($env:ANDROID_HOME) { $candidates += (Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe') }
+    if ($env:ANDROID_SDK_ROOT) { $candidates += (Join-Path $env:ANDROID_SDK_ROOT 'platform-tools\adb.exe') }
+    $cmd = Get-Command adb -ErrorAction SilentlyContinue
+    if ($cmd) { $candidates += $cmd.Source }
+    foreach ($p in ($candidates | Select-Object -Unique)) {
+        if ($p -and (Test-Path $p)) { return $p }
+    }
+    return $null
+}
+
 function Invoke-Action {
     param([string]$Action)
 
@@ -32,11 +45,12 @@ function Invoke-Action {
                 Write-Host "STATUS OK" -ForegroundColor Green
                 node --version
                 npm --version
-                if (Get-Command adb -ErrorAction SilentlyContinue) {
-                    Write-Host "ADB:" -ForegroundColor Yellow
-                    adb devices
+                $adb = Get-AdbPath
+                if ($adb) {
+                    Write-Host "ADB: $adb" -ForegroundColor Yellow
+                    & $adb devices
                 } else {
-                    Write-Host "ADB not found on PATH" -ForegroundColor Yellow
+                    Write-Host "ADB not found in PATH or standard Android SDK locations" -ForegroundColor Yellow
                 }
             }
             'install' {
@@ -60,10 +74,10 @@ function Invoke-Action {
                 maestro test '.maestro/08_full_regression.yml'
             }
             'android-status' {
-                if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
-                    throw 'ADB is not installed or not on PATH.'
-                }
-                adb devices
+                $adb = Get-AdbPath
+                if (-not $adb) { throw 'ADB is not installed or not found in standard Android SDK locations.' }
+                Write-Host "ADB: $adb" -ForegroundColor Yellow
+                & $adb devices
             }
             default {
                 throw "Blocked action: $Action"
