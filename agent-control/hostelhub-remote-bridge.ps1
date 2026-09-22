@@ -60,6 +60,37 @@ function Invoke-Action {
                 Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location -LiteralPath '$root'; npx expo start --android"
                 Write-Host "Expo start launched in a new PowerShell window." -ForegroundColor Green
             }
+            'android-start-emulator' {
+                $sdk = if ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } elseif ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
+                $emu = Join-Path $sdk 'emulator\emulator.exe'
+                if (-not (Test-Path $emu)) { throw "Android emulator executable not found at $emu" }
+
+                $avds = & $emu -list-avds 2>&1 | Where-Object { $_ -and $_ -notmatch '^INFO|^WARNING' }
+                if (-not $avds) { throw 'No Android Virtual Devices are configured. Open Android Studio > Device Manager and create an emulator.' }
+
+                $adb = Get-AdbPath
+                if (-not $adb) { throw 'ADB executable was not found.' }
+
+                Write-Host 'Current ADB devices:' -ForegroundColor Yellow
+                & $adb devices
+
+                $chosen = $avds | Select-Object -First 1
+                Write-Host "Starting AVD: $chosen" -ForegroundColor Cyan
+                Start-Process -FilePath $emu -ArgumentList @('-avd',$chosen,'-netdelay','none','-netspeed','full')
+
+                & $adb wait-for-device
+                $deadline = (Get-Date).AddMinutes(2)
+                $boot = '0'
+                do {
+                    Start-Sleep -Seconds 5
+                    $boot = (& $adb shell getprop sys.boot_completed 2>$null | Select-Object -First 1).Trim()
+                    if ($boot -eq '1') { break }
+                } while ((Get-Date) -lt $deadline)
+
+                if ($boot -ne '1') { throw "Android emulator '$chosen' did not finish booting within 2 minutes." }
+                Write-Host "Android emulator '$chosen' is READY." -ForegroundColor Green
+                & $adb devices
+            }
             'android-dev-build' {
                 Write-Host "Building and launching the real Android HostelHub app..." -ForegroundColor Cyan
                 npx expo run:android
