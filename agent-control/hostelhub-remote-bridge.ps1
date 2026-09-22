@@ -67,9 +67,19 @@ function Invoke-Action {
                     throw 'package.json missing'
                 }
             }
-            'maestro-full' {
+            'install-maestro' {
+                Write-Host "Installing Maestro CLI..." -ForegroundColor Cyan
+                $installer = Invoke-RestMethod -Uri 'https://get.maestro.mobile.dev' -UseBasicParsing -TimeoutSec 60
+                Invoke-Expression $installer
                 if (-not (Get-Command maestro -ErrorAction SilentlyContinue)) {
-                    throw 'Maestro CLI is not installed or not on PATH.'
+                    throw 'Maestro installer finished but the maestro command is not yet on PATH. Restart the bridge once and rerun maestro-full.'
+                }
+                maestro --version
+            }
+            'maestro-full' {
+                $maestro = Get-Command maestro -ErrorAction SilentlyContinue
+                if (-not $maestro) {
+                    throw 'Maestro CLI is not installed or not on PATH. Run install-maestro first.'
                 }
                 maestro test '.maestro/08_full_regression.yml'
             }
