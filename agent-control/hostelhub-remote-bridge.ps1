@@ -239,17 +239,24 @@ function Invoke-Action {
                 if (-not $sdkmanager) {
                     Write-Host "sdkmanager.bat not found. Installing official Android CLI..." -ForegroundColor Yellow
                     winget install --id Google.AndroidCLI --exact --silent --accept-package-agreements --accept-source-agreements
-                    $androidCmd = Get-Command android -ErrorAction SilentlyContinue
-                    if (-not $androidCmd) {
-                        $userBin = Join-Path $env:LOCALAPPDATA 'Android'
-                        $androidCmd = Get-ChildItem $userBin -Filter 'android.exe' -File -Recurse -ErrorAction SilentlyContinue |
-                            Select-Object -First 1
+                    $androidCandidates = @(
+                        (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\android.exe'),
+                        (Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\android.exe')
+                    )
+                    $userPath = [Environment]::GetEnvironmentVariable('Path','User')
+                    if ($userPath) {
+                        $env:Path = $userPath + ';' + [Environment]::GetEnvironmentVariable('Path','Machine')
                     }
-                    if ($androidCmd) {
-                        & $androidCmd.Source --sdk="$sdk" sdk install ndk/27.1.12297006
+                    $androidCandidates += (Get-Command android.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue)
+                    $androidCandidates += Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet') -Filter 'android.exe' -File -Recurse -ErrorAction SilentlyContinue |
+                        Select-Object -ExpandProperty FullName
+                    $androidPath = $androidCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+                    if ($androidPath) {
+                        Write-Host "Using Android CLI: $androidPath" -ForegroundColor Cyan
+                        & $androidPath sdk install "ndk/27.1.12297006"
                         if ($LASTEXITCODE -ne 0) { throw "Android CLI NDK install failed with exit code $LASTEXITCODE" }
                     } else {
-                        throw "Could not locate sdkmanager.bat or Android CLI after installation."
+                        throw "Android CLI installed but android.exe could not be located."
                     }
                 }
                 if (-not $sdkmanager) {
