@@ -45,6 +45,28 @@ function Invoke-Action {
                 Write-Host "STATUS OK" -ForegroundColor Green
                 node --version
                 npm --version
+                $pkgJson = Join-Path $root 'package.json'
+                if (Test-Path $pkgJson) {
+                    Write-Host '--- PACKAGE.JSON EXPO CONFIG ---' -ForegroundColor Yellow
+                    $p = Get-Content $pkgJson -Raw -ErrorAction SilentlyContinue
+                    if ($p) {
+                        $j = $p | ConvertFrom-Json
+                        if ($j.expo) {
+                            Write-Host (($j.expo | ConvertTo-Json -Depth 10))
+                        } else {
+                            Write-Host 'No root-level expo key in package.json'
+                        }
+                    }
+                }
+                foreach ($cfg in @('app.json','app.config.js','app.config.ts')) {
+                    $cfgPath = Join-Path $root $cfg
+                    if (Test-Path $cfgPath) {
+                        Write-Host ("--- {0} ---" -f $cfg) -ForegroundColor Yellow
+                        Get-Content $cfgPath -Raw
+                    }
+                }
+                Write-Host '--- EXPO CONFIG CHECK ---' -ForegroundColor Yellow
+                npx expo config --type public 2>&1 | Select-Object -Last 120
                 $adb = Get-AdbPath
                 if ($adb) {
                     Write-Host "ADB: $adb" -ForegroundColor Yellow
