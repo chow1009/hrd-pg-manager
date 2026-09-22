@@ -123,16 +123,30 @@ function Initialize-ControlRepo {
     return $controlRoot
 }
 
-function Get-CommandFile {
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        throw 'Git is required for the bridge control channel.'
+function Get-GhPath {
+    $candidates = @(
+        (Join-Path $env:ProgramFiles 'GitHub CLI\gh.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\GitHub CLI\gh.exe')
+    )
+    $cmd = Get-Command gh -ErrorAction SilentlyContinue
+    if ($cmd) { $candidates += $cmd.Source }
+    foreach ($p in ($candidates | Select-Object -Unique)) {
+        if ($p -and (Test-Path $p)) { return $p }
     }
+    return $null
+}
 
-    $controlRoot = Initialize-ControlRepo
-    git -C $controlRoot fetch --quiet origin hostelhub-agent
-    $raw = git -C $controlRoot show 'FETCH_HEAD:agent-control/command.json'
-    if (-not $raw) { throw 'Command file was empty.' }
-    return ($raw | ConvertFrom-Json)
+function Get-CommandFile {
+    $gh = Get-GhPath
+    if (-not $gh) { throw 'GitHub CLI was not found. Install GitHub CLI and authenticate it first.' }
+
+    $b64 = & $gh api 'repos/chow1009/hrd-pg-manager/contents/agent-control/command.json?ref=hostelhub-agent' --jq .content
+    if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI could not read the command file.' }
+
+    $clean = ($b64 -join '') -replace '\s',''
+    $bytes = [Convert]::FromBase64String($clean)
+    $json = [Text.Encoding]::UTF8.GetString($bytes)
+    return ($json | ConvertFrom-Json)
 }
 
 Write-Host ''
