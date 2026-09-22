@@ -65,21 +65,28 @@ function Invoke-Action {
                         Get-Content $cfgPath -Raw
                     }
                 }
-                Write-Host '--- EXPO CONFIG CHECK ---' -ForegroundColor Yellow
-                $savedEap = $ErrorActionPreference
-                try {
-                    $ErrorActionPreference = 'Continue'
-                    $expoConfigOutput = @(cmd.exe /c "npx expo config --type public 2>&1")
-                    $expoConfigExit = $LASTEXITCODE
-                    if ($expoConfigOutput.Count -gt 0) {
-                        $startExpo = [Math]::Max(0, $expoConfigOutput.Count - 160)
-                        Write-Host (($expoConfigOutput[$startExpo..($expoConfigOutput.Count-1)]) -join [Environment]::NewLine)
+                Write-Host '--- EXPO CONFIG FILES ---' -ForegroundColor Yellow
+                foreach ($cfg in @('package.json','app.json','app.config.js','app.config.ts')) {
+                    $cfgPath = Join-Path $root $cfg
+                    if (Test-Path $cfgPath) {
+                        Write-Host ("### {0}" -f $cfg) -ForegroundColor Cyan
+                        try {
+                            if ($cfg -eq 'package.json') {
+                                $pj = Get-Content $cfgPath -Raw | ConvertFrom-Json
+                                if ($null -ne $pj.expo) {
+                                    $pj.expo | ConvertTo-Json -Depth 20 | Write-Host
+                                } else {
+                                    Write-Host 'No root-level expo object in package.json'
+                                }
+                            } else {
+                                Get-Content $cfgPath -Raw | Write-Host
+                            }
+                        } catch {
+                            Write-Host ("Could not parse {0}: {1}" -f $cfg, $_.Exception.Message) -ForegroundColor Yellow
+                        }
                     }
-                    Write-Host ("Expo config exit code: {0}" -f $expoConfigExit) -ForegroundColor Yellow
-                } finally {
-                    $ErrorActionPreference = $savedEap
                 }
-                $adb = Get-AdbPath
+                $adb = Get-AdbPath                $adb = Get-AdbPath
                 if ($adb) {
                     Write-Host "ADB: $adb" -ForegroundColor Yellow
                     & $adb devices
