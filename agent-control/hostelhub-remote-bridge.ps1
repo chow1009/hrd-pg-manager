@@ -217,9 +217,41 @@ function Invoke-Action {
                 [Environment]::SetEnvironmentVariable('ANDROID_HOME',$sdk,'User')
                 [Environment]::SetEnvironmentVariable('ANDROID_SDK_ROOT',$sdk,'User')
                 $localProps = Join-Path (Join-Path $root 'android') 'local.properties'
-                Set-Content -Path $localProps -Value ("sdk.dir=" + ($sdk -replace '\\','\\')) -Encoding ascii
+                Set-Content -Path $localProps -Value ("sdk.dir=" + ($sdk -replace '\\','/')) -Encoding ascii
                 Write-Host "Android SDK configured: $sdk" -ForegroundColor Green
                 Write-Host "local.properties: $localProps" -ForegroundColor Green
+
+                $sdkmanagers = @()
+                $sdkmanagers += (Get-Command sdkmanager.bat -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue)
+                if (Test-Path (Join-Path $sdk 'cmdline-tools')) {
+                    $sdkmanagers += Get-ChildItem (Join-Path $sdk 'cmdline-tools') -Filter 'sdkmanager.bat' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+                }
+                $sdkmanagers += (Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Android') -Filter 'sdkmanager.bat' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+                $sdkmanager = $sdkmanagers | Where-Object { $_ } | Select-Object -First 1
+
+                if (-not $sdkmanager) {
+                    Write-Host "sdkmanager.bat was not found. Checking common Android Studio SDK-manager locations..." -ForegroundColor Yellow
+                    $studioCandidates = @(
+                        "$env:ProgramFiles\Android\Android Studio\plugins\android\lib\sdkmanager.bat",
+                        "$env:ProgramFiles\Android\Android Studio\plugins\android\lib\sdkmanager\sdkmanager.bat",
+                        "$env:ProgramFiles\Android\Android Studio\bin\sdkmanager.bat"
+                    )
+                    $sdkmanager = $studioCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+                }
+
+                if ($sdkmanager) {
+                    Write-Host "Using sdkmanager: $sdkmanager" -ForegroundColor Cyan
+                    & $sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+                    if ($LASTEXITCODE -ne 0) { throw "sdkmanager failed with exit code $LASTEXITCODE" }
+                } else {
+                    Write-Host "No sdkmanager found. Android Studio/Command-line tools may need repair." -ForegroundColor Yellow
+                }
+
+                $ndk = Join-Path $sdk 'ndk\27.1.12297006'
+                if (-not (Test-Path (Join-Path $ndk 'source.properties'))) {
+                    throw "NDK 27.1.12297006 is still incomplete at $ndk"
+                }
+                Write-Host "NDK 27.1.12297006 is READY." -ForegroundColor Green
                 & (Join-Path $sdk 'platform-tools\adb.exe') devices
             }
             'android-dev-build' {
