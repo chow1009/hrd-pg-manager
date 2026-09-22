@@ -78,9 +78,22 @@ function Invoke-Action {
                 if (Test-Path $installRoot) { Remove-Item $installRoot -Recurse -Force }
                 New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
                 Expand-Archive -Path $zip -DestinationPath $installRoot -Force
-                $maestroBin = Join-Path $installRoot 'bin'
-                if (-not (Test-Path (Join-Path $maestroBin 'maestro.bat'))) {
-                    throw "Maestro installation did not contain $maestroBin\maestro.bat"
+                $maestroBat = Get-ChildItem -Path $installRoot -Filter 'maestro.bat' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                if (-not $maestroBat) {
+                    $maestroExe = Get-ChildItem -Path $installRoot -Filter 'maestro.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($maestroExe) {
+                        $maestroBin = $maestroExe.Directory.FullName
+                    } else {
+                        throw "Maestro package did not contain maestro.bat or maestro.exe after extraction."
+                    }
+                } else {
+                    $maestroBin = $maestroBat.Directory.FullName
+                }
+                $targetBin = Join-Path $installRoot 'bin'
+                if ($maestroBin -ne $targetBin) {
+                    New-Item -ItemType Directory -Force -Path $targetBin | Out-Null
+                    Get-ChildItem -Path $maestroBin -Force | Copy-Item -Destination $targetBin -Recurse -Force
+                    $maestroBin = $targetBin
                 }
                 $userPath = [Environment]::GetEnvironmentVariable('Path','User')
                 $parts = @()
