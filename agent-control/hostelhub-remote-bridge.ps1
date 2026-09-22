@@ -67,6 +67,35 @@ function Invoke-Action {
                     throw 'package.json missing'
                 }
             }
+            'install-java' {
+                Write-Host "Installing Java 17 (Temurin)..." -ForegroundColor Cyan
+                winget install --id EclipseAdoptium.Temurin.17.JDK --exact --silent --accept-package-agreements --accept-source-agreements
+                $javaRoots = @(
+                    'C:\Program Files\Eclipse Adoptium',
+                    'C:\Program Files\Eclipse Adoptium\'
+                )
+                $jdk = $null
+                foreach ($jr in ($javaRoots | Select-Object -Unique)) {
+                    if (Test-Path $jr) {
+                        $jdk = Get-ChildItem -Path $jr -Directory -ErrorAction SilentlyContinue |
+                            Sort-Object LastWriteTime -Descending |
+                            Select-Object -First 1
+                        if ($jdk) { break }
+                    }
+                }
+                if (-not $jdk) { throw 'Temurin JDK 17 installed but its installation directory could not be located.' }
+                [Environment]::SetEnvironmentVariable('JAVA_HOME', $jdk.FullName, 'User')
+                $userPath = [Environment]::GetEnvironmentVariable('Path','User')
+                $javaBin = Join-Path $jdk.FullName 'bin'
+                $parts = @()
+                if ($userPath) { $parts = $userPath -split ';' | Where-Object { $_ -and $_ -ne $javaBin } }
+                $parts += $javaBin
+                [Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'User')
+                $env:JAVA_HOME = $jdk.FullName
+                $env:Path = "$javaBin;$env:Path"
+                Write-Host "JAVA_HOME=$env:JAVA_HOME" -ForegroundColor Green
+                java -version
+            }
             'install-maestro' {
                 $maestroVersion = '2.10.0'
                 $installRoot = 'C:\maestro'
