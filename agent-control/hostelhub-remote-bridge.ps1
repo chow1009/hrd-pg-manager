@@ -212,6 +212,7 @@ function Invoke-Action {
                     if ($p -and (Test-Path (Join-Path $p 'platform-tools\adb.exe'))) { $sdk = (Resolve-Path $p).Path; break }
                 }
                 if (-not $sdk) { throw 'Android SDK not found in ANDROID_SDK_ROOT, ANDROID_HOME, or %LOCALAPPDATA%\Android\Sdk.' }
+
                 $env:ANDROID_HOME = $sdk
                 $env:ANDROID_SDK_ROOT = $sdk
                 [Environment]::SetEnvironmentVariable('ANDROID_HOME',$sdk,'User')
@@ -219,77 +220,62 @@ function Invoke-Action {
                 $localProps = Join-Path (Join-Path $root 'android') 'local.properties'
                 Set-Content -Path $localProps -Value ("sdk.dir=" + ($sdk -replace '\\','/')) -Encoding ascii
                 Write-Host "Android SDK configured: $sdk" -ForegroundColor Green
-                Write-Host "local.properties: $localProps" -ForegroundColor Green
 
-                $sdkmanagers = @()
-                $sdkmanagers += (Get-Command sdkmanager.bat -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue)
-                if (Test-Path (Join-Path $sdk 'cmdline-tools')) {
-                    $sdkmanagers += Get-ChildItem (Join-Path $sdk 'cmdline-tools') -Filter 'sdkmanager.bat' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
-                }
-                $sdkmanagers += (Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Android') -Filter 'sdkmanager.bat' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
-                $sdkmanager = $sdkmanagers | Where-Object { $_ } | Select-Object -First 1
+                $ndkVersion = '27.1.12297006'
+                $ndk = Join-Path $sdk ("ndk\{0}" -f $ndkVersion)
+                $sourceProps = Join-Path $ndk 'source.properties'
 
-                if (-not $sdkmanager) {
-                    $studioRoot = Join-Path $env:ProgramFiles 'Android\Android Studio'
-                    if (Test-Path $studioRoot) {
-                        $sdkmanager = Get-ChildItem $studioRoot -Filter 'sdkmanager.bat' -File -Recurse -ErrorAction SilentlyContinue |
-                            Select-Object -ExpandProperty FullName -First 1
+                if (-not (Test-Path $sourceProps)) {
+                    Write-Host "NDK $ndkVersion is incomplete. Using resumable official Google NDK download..." -ForegroundColor Yellow
+
+                    if (Test-Path $ndk) { Remove-Item $ndk -Recurse -Force -ErrorAction SilentlyContinue }
+
+                    $zip = Join-Path $env:TEMP 'android-ndk-r27b-windows.zip'
+                    $url = 'https://dl.google.com/android/repository/android-ndk-r27b-windows.zip'
+
+                    if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
+                        throw 'curl.exe is required for the resumable NDK download and was not found.'
                     }
-                }
-                if (-not $sdkmanager) {
-                    Write-Host "sdkmanager.bat not found. Installing official Android CLI..." -ForegroundColor Yellow
-                    winget install --id Google.AndroidCLI --exact --silent --accept-package-agreements --accept-source-agreements
-                    $androidCandidates = @(
-                        (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\android.exe'),
-                        (Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\android.exe')
+
+                    $curlArgs = @(
+                        '-L','--fail','--http1.1',
+                        '--retry','20','--retry-delay','5','--retry-all-errors',
+                        '--continue-at','-',
+                        '--output',$zip,
+                        $url
                     )
-                    $userPath = [Environment]::GetEnvironmentVariable('Path','User')
-                    $machinePath = [Environment]::GetEnvironmentVariable('Path','Machine')
-                    if ($userPath) { $env:Path = $userPath + ';' + $machinePath }
-                    $whereAndroid = @(& cmd.exe /c 'where android 2>nul')
-                    $androidCandidates += $whereAndroid
-                    $androidCandidates += (Get-Command android.exe -All -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue)
-                    $wingetRoot = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
-                    if (Test-Path $wingetRoot) {
-                        $androidCandidates += Get-ChildItem $wingetRoot -Filter 'android.exe' -File -Recurse -ErrorAction SilentlyContinue |
-                            Select-Object -ExpandProperty FullName
+                    & curl.exe @curlArgs
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "NDK download failed with exit code $LASTEXITCODE. The partial archive is retained at $zip for resume."
                     }
-                    $androidCandidates += Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps') -Filter 'android*.exe' -File -ErrorAction SilentlyContinue |
-                        Select-Object -ExpandProperty FullName
-                    $androidPath = $androidCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-                    if ($androidPath) {
-                        Write-Host "Using Android CLI: $androidPath" -ForegroundColor Cyan
-                        & $androidPath --sdk="$sdk" sdk install "ndk/27.1.12297006"
-                        if ($LASTEXITCODE -ne 0) { throw "Android CLI NDK install failed with exit code $LASTEXITCODE" }
+
+                    Write-Host "NDK archive downloaded. Extracting..." -ForegroundColor Cyan
+                    $extractRoot = Join-Path $env:TEMP 'hostelhub-ndk-extract'
+                    if (Test-Path $extractRoot) { Remove-Item $extractRoot -Recurse -Force }
+                    New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
+
+                    $tar = Get-Command tar.exe -ErrorAction SilentlyContinue
+                    if ($tar) {
+                        & $tar.Source -xf $zip -C $extractRoot
+                        if ($LASTEXITCODE -ne 0) { throw "tar failed to extract the NDK archive." }
                     } else {
-                        Write-Host "Android CLI discovery failed. where android returned:" -ForegroundColor Yellow
-                        Write-Host ($whereAndroid -join [Environment]::NewLine)
-                        throw "Android CLI installed but android.exe could not be located."
+                        Expand-Archive -LiteralPath $zip -DestinationPath $extractRoot -Force
                     }
-                }
-                if (-not $sdkmanager) {
-                    Write-Host "sdkmanager.bat was not found. Checking common Android Studio SDK-manager locations..." -ForegroundColor Yellow
-                    $studioCandidates = @(
-                        "$env:ProgramFiles\Android\Android Studio\plugins\android\lib\sdkmanager.bat",
-                        "$env:ProgramFiles\Android\Android Studio\plugins\android\lib\sdkmanager\sdkmanager.bat",
-                        "$env:ProgramFiles\Android\Android Studio\bin\sdkmanager.bat"
-                    )
-                    $sdkmanager = $studioCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+                    $prop = Get-ChildItem $extractRoot -Filter 'source.properties' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if (-not $prop) { throw "Downloaded NDK archive did not contain source.properties." }
+
+                    $sourceDir = $prop.Directory.FullName
+                    New-Item -ItemType Directory -Force -Path (Split-Path $ndk -Parent) | Out-Null
+                    Move-Item -Path $sourceDir -Destination $ndk -Force
+                    Remove-Item $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
                 }
 
-                if ($sdkmanager) {
-                    Write-Host "Using sdkmanager: $sdkmanager" -ForegroundColor Cyan
-                    & $sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
-                    if ($LASTEXITCODE -ne 0) { throw "sdkmanager failed with exit code $LASTEXITCODE" }
-                } else {
-                    Write-Host "No sdkmanager found. Android Studio/Command-line tools may need repair." -ForegroundColor Yellow
+                if (-not (Test-Path $sourceProps)) {
+                    throw "NDK $ndkVersion is still incomplete at $ndk"
                 }
 
-                $ndk = Join-Path $sdk 'ndk\27.1.12297006'
-                if (-not (Test-Path (Join-Path $ndk 'source.properties'))) {
-                    throw "NDK 27.1.12297006 is still incomplete at $ndk"
-                }
-                Write-Host "NDK 27.1.12297006 is READY." -ForegroundColor Green
+                Write-Host "NDK $ndkVersion is READY." -ForegroundColor Green
                 & (Join-Path $sdk 'platform-tools\adb.exe') devices
             }
             'android-dev-build' {
