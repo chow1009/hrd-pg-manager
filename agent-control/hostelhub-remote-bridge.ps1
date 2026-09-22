@@ -100,18 +100,21 @@ function Invoke-Action {
                 $maestroVersion = '2.10.0'
                 $installRoot = 'C:\maestro'
                 $zip = Join-Path $env:TEMP 'maestro.zip'
-                $url = "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-$maestroVersion/maestro.zip"
-                Write-Host "Installing Maestro CLI $maestroVersion from the official Windows ZIP..." -ForegroundColor Cyan
+                $gh = Get-GhPath
+                if (-not $gh) { throw 'GitHub CLI was not found. It is required for reliable Maestro download.' }
+
+                Write-Host "Downloading Maestro CLI $maestroVersion via GitHub CLI..." -ForegroundColor Cyan
                 if (Test-Path $zip) { Remove-Item $zip -Force }
-                Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+                & $gh release download "cli-$maestroVersion" --repo mobile-dev-inc/Maestro --pattern maestro.zip --output $zip --clobber
+                if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI could not download the Maestro release asset.' }
+                if (-not (Test-Path $zip)) { throw 'Maestro ZIP was not created.' }
+
                 if (Test-Path $installRoot) { Remove-Item $installRoot -Recurse -Force }
                 New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
                 Expand-Archive -Path $zip -DestinationPath $installRoot -Force
 
                 $maestroBat = Get-ChildItem -Path $installRoot -Filter 'maestro.bat' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-                if (-not $maestroBat) {
-                    throw "Maestro ZIP extracted but maestro.bat was not found under $installRoot"
-                }
+                if (-not $maestroBat) { throw "Maestro ZIP extracted but maestro.bat was not found under $installRoot" }
 
                 $maestroBin = $maestroBat.Directory.FullName
                 Write-Host "Maestro binary directory: $maestroBin" -ForegroundColor Green
