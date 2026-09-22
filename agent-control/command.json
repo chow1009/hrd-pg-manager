@@ -1,4 +1,4 @@
 {
-  "id": 22,
-  "action": "android-start-emulator"
+  "id": 23,
+  "action": "android-dev-build"
 }
