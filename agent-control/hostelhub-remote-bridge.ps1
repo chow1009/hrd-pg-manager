@@ -114,15 +114,25 @@ function Invoke-Action {
     }
 }
 
-function Get-CommandFile {
-    $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-    $url = "$RepoRawBase/command.json?cb=$stamp"
-    Invoke-RestMethod -Uri $url -UseBasicParsing -TimeoutSec 15 -Headers @{
-        'Cache-Control' = 'no-cache'
-        'Pragma' = 'no-cache'
-        'User-Agent' = 'HostelHub-Agent-Bridge'
-        'Accept' = 'application/json,text/plain,*/*'
+function Initialize-ControlRepo {
+    $controlRoot = Join-Path $StateDir 'control-repo'
+    if (-not (Test-Path (Join-Path $controlRoot '.git'))) {
+        if (Test-Path $controlRoot) { Remove-Item $controlRoot -Recurse -Force }
+        git clone --depth 1 --branch hostelhub-agent 'https://github.com/chow1009/hrd-pg-manager.git' $controlRoot | Out-Host
     }
+    return $controlRoot
+}
+
+function Get-CommandFile {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        throw 'Git is required for the bridge control channel.'
+    }
+
+    $controlRoot = Initialize-ControlRepo
+    git -C $controlRoot fetch --quiet origin hostelhub-agent
+    $raw = git -C $controlRoot show 'FETCH_HEAD:agent-control/command.json'
+    if (-not $raw) { throw 'Command file was empty.' }
+    return ($raw | ConvertFrom-Json)
 }
 
 Write-Host ''
