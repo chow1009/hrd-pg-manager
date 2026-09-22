@@ -114,6 +114,32 @@ function Invoke-Action {
                 Write-Host "Android emulator '$chosen' is READY." -ForegroundColor Green
                 & $adb devices
             }
+            'android-build-install' {
+                $adb = Get-AdbPath
+                if (-not $adb) { throw 'ADB executable was not found.' }
+                $devices = & $adb devices | Select-String '\tdevice$'
+                if (-not $devices) { throw 'No Android emulator/device is connected to ADB.' }
+
+                $apk = Get-ChildItem -Path (Join-Path $root 'android') -Filter 'app-debug.apk' -File -Recurse -ErrorAction SilentlyContinue |
+                    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+                if (-not $apk) {
+                    Write-Host 'No debug APK found. Building Android app...' -ForegroundColor Cyan
+                    npx expo run:android
+                    if ($LASTEXITCODE -ne 0) { throw "npx expo run:android failed with exit code $LASTEXITCODE" }
+                    $apk = Get-ChildItem -Path (Join-Path $root 'android') -Filter 'app-debug.apk' -File -Recurse -ErrorAction SilentlyContinue |
+                        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                }
+
+                if (-not $apk) { throw 'Android build completed but app-debug.apk could not be found.' }
+                Write-Host "Installing APK: $($apk.FullName)" -ForegroundColor Cyan
+                & $adb install -r $apk.FullName
+                if ($LASTEXITCODE -ne 0) { throw "adb install failed with exit code $LASTEXITCODE" }
+                & $adb shell am force-stop com.hrdhostels.app
+                & $adb shell monkey -p com.hrdhostels.app 1
+                Start-Sleep -Seconds 5
+                Write-Host 'HostelHub APK installed and launch requested.' -ForegroundColor Green
+            }
             'android-dev-build' {
                 Write-Host "Building and launching the real Android HostelHub app..." -ForegroundColor Cyan
                 npx expo run:android
