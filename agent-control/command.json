@@ -1,4 +1,4 @@
 {
-  "id": 20,
-  "action": "android-ui-smoke"
+  "id": 21,
+  "action": "android-start-emulator"
 }
