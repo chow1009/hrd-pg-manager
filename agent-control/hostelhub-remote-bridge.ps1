@@ -100,15 +100,28 @@ function Invoke-Action {
                 $maestroVersion = '2.10.0'
                 $installRoot = 'C:\maestro'
                 $zip = Join-Path $env:TEMP 'maestro.zip'
-                $gh = Get-GhPath
-                if (-not $gh) { throw 'GitHub CLI was not found. It is required for reliable Maestro download.' }
+                $url = "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-$maestroVersion/maestro.zip"
+                $expectedSha = '29b675e10cc12080e445e9bfb2e2b4e4dfb9c0f2e30d5884120d258b5e1cd991'
 
-                Write-Host "Downloading Maestro CLI $maestroVersion via GitHub CLI..." -ForegroundColor Cyan
-                if (Test-Path $zip) { Remove-Item $zip -Force }
-                & $gh release download "cli-$maestroVersion" --repo mobile-dev-inc/Maestro --pattern maestro.zip --output $zip --clobber
-                if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI could not download the Maestro release asset.' }
-                if (-not (Test-Path $zip)) { throw 'Maestro ZIP was not created.' }
+                Write-Host "Downloading Maestro CLI $maestroVersion with resumable curl..." -ForegroundColor Cyan
+                if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) { throw 'curl.exe is required and was not found.' }
 
+                $curlArgs = @(
+                    '-L','--fail','--http1.1',
+                    '--retry','10','--retry-delay','3','--retry-all-errors',
+                    '--continue-at','-',
+                    '--output',$zip,
+                    $url
+                )
+                & curl.exe @curlArgs
+                if ($LASTEXITCODE -ne 0) { throw "curl failed with exit code $LASTEXITCODE. A partially downloaded file may remain at $zip." }
+
+                $actualSha = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($actualSha -ne $expectedSha) {
+                    throw "Maestro ZIP checksum mismatch. Expected $expectedSha but received $actualSha."
+                }
+
+                Write-Host "Maestro ZIP checksum verified." -ForegroundColor Green
                 if (Test-Path $installRoot) { Remove-Item $installRoot -Recurse -Force }
                 New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
                 Expand-Archive -Path $zip -DestinationPath $installRoot -Force
