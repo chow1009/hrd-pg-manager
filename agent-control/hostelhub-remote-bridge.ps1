@@ -2,7 +2,7 @@
 # Safe allowlist bridge: only named HostelHub actions are executable.
 $ErrorActionPreference = 'Stop'
 
-$RepoRawBase = 'https://raw.githubusercontent.com/chow1009/hrd-pg-manager/hostelhub-agent/agent-control'
+$RepoRawBase = 'https://cdn.jsdelivr.net/gh/chow1009/hrd-pg-manager@hostelhub-agent/agent-control'
 $StateDir = Join-Path $env:LOCALAPPDATA 'HostelHub-Agent'
 $StateFile = Join-Path $StateDir 'last-command-id.txt'
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
@@ -121,7 +121,7 @@ function Get-CommandFile {
         'Cache-Control' = 'no-cache'
         'Pragma' = 'no-cache'
         'User-Agent' = 'HostelHub-Agent-Bridge'
-        'Accept' = 'text/plain'
+        'Accept' = 'application/json,text/plain,*/*'
     }
 }
 
