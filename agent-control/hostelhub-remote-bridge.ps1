@@ -140,6 +140,17 @@ function Invoke-Action {
                 Start-Sleep -Seconds 5
                 Write-Host 'HostelHub APK installed and launch requested.' -ForegroundColor Green
             }
+            'show-build-log' {
+                $log = Join-Path $root 'android-build.log'
+                if (-not (Test-Path $log)) { throw 'android-build.log does not exist in the project root.' }
+                Write-Host '--- ANDROID BUILD LOG: LAST 220 LINES ---' -ForegroundColor Yellow
+                $lines = Get-Content $log -ErrorAction Stop
+                if ($lines.Count -gt 0) {
+                    $start = [Math]::Max(0, $lines.Count - 220)
+                    Write-Host (($lines[$start..($lines.Count-1)]) -join [Environment]::NewLine)
+                }
+                Write-Host '--- END ANDROID BUILD LOG ---' -ForegroundColor Yellow
+            }
             'android-fix-sdk' {
                 $sdkCandidates = @()
                 if ($env:ANDROID_SDK_ROOT) { $sdkCandidates += $env:ANDROID_SDK_ROOT }
