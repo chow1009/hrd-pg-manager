@@ -230,6 +230,29 @@ function Invoke-Action {
                 $sdkmanager = $sdkmanagers | Where-Object { $_ } | Select-Object -First 1
 
                 if (-not $sdkmanager) {
+                    $studioRoot = Join-Path $env:ProgramFiles 'Android\Android Studio'
+                    if (Test-Path $studioRoot) {
+                        $sdkmanager = Get-ChildItem $studioRoot -Filter 'sdkmanager.bat' -File -Recurse -ErrorAction SilentlyContinue |
+                            Select-Object -ExpandProperty FullName -First 1
+                    }
+                }
+                if (-not $sdkmanager) {
+                    Write-Host "sdkmanager.bat not found. Installing official Android CLI..." -ForegroundColor Yellow
+                    winget install --id Google.AndroidCLI --exact --silent --accept-package-agreements --accept-source-agreements
+                    $androidCmd = Get-Command android -ErrorAction SilentlyContinue
+                    if (-not $androidCmd) {
+                        $userBin = Join-Path $env:LOCALAPPDATA 'Android'
+                        $androidCmd = Get-ChildItem $userBin -Filter 'android.exe' -File -Recurse -ErrorAction SilentlyContinue |
+                            Select-Object -First 1
+                    }
+                    if ($androidCmd) {
+                        & $androidCmd.Source --sdk="$sdk" sdk install ndk/27.1.12297006
+                        if ($LASTEXITCODE -ne 0) { throw "Android CLI NDK install failed with exit code $LASTEXITCODE" }
+                    } else {
+                        throw "Could not locate sdkmanager.bat or Android CLI after installation."
+                    }
+                }
+                if (-not $sdkmanager) {
                     Write-Host "sdkmanager.bat was not found. Checking common Android Studio SDK-manager locations..." -ForegroundColor Yellow
                     $studioCandidates = @(
                         "$env:ProgramFiles\Android\Android Studio\plugins\android\lib\sdkmanager.bat",
