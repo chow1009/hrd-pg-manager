@@ -66,13 +66,19 @@ function Invoke-Action {
                     }
                 }
                 Write-Host '--- EXPO CONFIG CHECK ---' -ForegroundColor Yellow
-                $expoConfigOutput = @(& npx expo config --type public 2>&1)
-                $expoConfigExit = $LASTEXITCODE
-                if ($expoConfigOutput.Count -gt 0) {
-                    $startExpo = [Math]::Max(0, $expoConfigOutput.Count - 120)
-                    Write-Host (($expoConfigOutput[$startExpo..($expoConfigOutput.Count-1)]) -join [Environment]::NewLine)
+                $savedEap = $ErrorActionPreference
+                try {
+                    $ErrorActionPreference = 'Continue'
+                    $expoConfigOutput = @(cmd.exe /c "npx expo config --type public 2>&1")
+                    $expoConfigExit = $LASTEXITCODE
+                    if ($expoConfigOutput.Count -gt 0) {
+                        $startExpo = [Math]::Max(0, $expoConfigOutput.Count - 160)
+                        Write-Host (($expoConfigOutput[$startExpo..($expoConfigOutput.Count-1)]) -join [Environment]::NewLine)
+                    }
+                    Write-Host ("Expo config exit code: {0}" -f $expoConfigExit) -ForegroundColor Yellow
+                } finally {
+                    $ErrorActionPreference = $savedEap
                 }
-                Write-Host ("Expo config exit code: {0}" -f $expoConfigExit) -ForegroundColor Yellow
                 $adb = Get-AdbPath
                 if ($adb) {
                     Write-Host "ADB: $adb" -ForegroundColor Yellow
