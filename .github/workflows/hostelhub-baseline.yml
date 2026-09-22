@@ -1,0 +1,45 @@
+name: HostelHub baseline validation
+
+on:
+  push:
+    branches: [hostelhub-agent]
+  pull_request:
+    branches: [hostelhub-agent]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-web-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate required files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f index.html
+          test -f final.html
+          test -f app.js
+          test -f supabase_schema_hrd.sql
+          echo "Required HostelHub baseline files are present."
+
+      - name: Basic JavaScript syntax check
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check app.js
+          echo "app.js syntax OK."
+
+      - name: Security guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RniE 'service_role|SUPABASE_SERVICE_ROLE|-----BEGIN (RSA|OPENSSH|PRIVATE) KEY-----' --exclude-dir=.git .; then
+            echo "Potential secret material found in repository."
+            exit 1
+          fi
+          echo "No obvious service-role/private-key material found."
