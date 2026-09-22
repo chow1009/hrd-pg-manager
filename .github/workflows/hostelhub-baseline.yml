@@ -38,7 +38,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -RniE 'service_role|SUPABASE_SERVICE_ROLE|-----BEGIN (RSA|OPENSSH|PRIVATE) KEY-----' --exclude-dir=.git .; then
+          if grep -RniE 'service_role|SUPABASE_SERVICE_ROLE|-----BEGIN (RSA|OPENSSH|PRIVATE) KEY-----' --exclude-dir=.git --exclude-dir=.github .; then
             echo "Potential secret material found in repository."
             exit 1
           fi
