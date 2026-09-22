@@ -68,13 +68,28 @@ function Invoke-Action {
                 }
             }
             'install-maestro' {
-                Write-Host "Installing Maestro CLI..." -ForegroundColor Cyan
-                $installer = Invoke-RestMethod -Uri 'https://get.maestro.mobile.dev' -UseBasicParsing -TimeoutSec 60
-                Invoke-Expression $installer
-                if (-not (Get-Command maestro -ErrorAction SilentlyContinue)) {
-                    throw 'Maestro installer finished but the maestro command is not yet on PATH. Restart the bridge once and rerun maestro-full.'
+                $maestroVersion = '2.10.0'
+                $installRoot = 'C:\maestro'
+                $zip = Join-Path $env:TEMP 'maestro.zip'
+                $url = "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-$maestroVersion/maestro.zip"
+                Write-Host "Installing Maestro CLI $maestroVersion from the official Windows ZIP..." -ForegroundColor Cyan
+                if (Test-Path $zip) { Remove-Item $zip -Force }
+                Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+                if (Test-Path $installRoot) { Remove-Item $installRoot -Recurse -Force }
+                New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+                Expand-Archive -Path $zip -DestinationPath $installRoot -Force
+                $maestroBin = Join-Path $installRoot 'bin'
+                if (-not (Test-Path (Join-Path $maestroBin 'maestro.bat'))) {
+                    throw "Maestro installation did not contain $maestroBin\maestro.bat"
                 }
-                maestro --version
+                $userPath = [Environment]::GetEnvironmentVariable('Path','User')
+                $parts = @()
+                if ($userPath) { $parts = $userPath -split ';' | Where-Object { $_ -and $_ -ne $maestroBin } }
+                $parts += $maestroBin
+                [Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'User')
+                $env:Path = "$maestroBin;$env:Path"
+                Write-Host "Maestro installed at $maestroBin" -ForegroundColor Green
+                & (Join-Path $maestroBin 'maestro.bat') --version
             }
             'maestro-full' {
                 $maestro = Get-Command maestro -ErrorAction SilentlyContinue
