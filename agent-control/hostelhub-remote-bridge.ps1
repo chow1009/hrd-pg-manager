@@ -140,6 +140,26 @@ function Invoke-Action {
                 Start-Sleep -Seconds 5
                 Write-Host 'HostelHub APK installed and launch requested.' -ForegroundColor Green
             }
+            'android-fix-sdk' {
+                $sdkCandidates = @()
+                if ($env:ANDROID_SDK_ROOT) { $sdkCandidates += $env:ANDROID_SDK_ROOT }
+                if ($env:ANDROID_HOME) { $sdkCandidates += $env:ANDROID_HOME }
+                $sdkCandidates += (Join-Path $env:LOCALAPPDATA 'Android\Sdk')
+                $sdk = $null
+                foreach ($p in ($sdkCandidates | Select-Object -Unique)) {
+                    if ($p -and (Test-Path (Join-Path $p 'platform-tools\adb.exe'))) { $sdk = (Resolve-Path $p).Path; break }
+                }
+                if (-not $sdk) { throw 'Android SDK not found in ANDROID_SDK_ROOT, ANDROID_HOME, or %LOCALAPPDATA%\Android\Sdk.' }
+                $env:ANDROID_HOME = $sdk
+                $env:ANDROID_SDK_ROOT = $sdk
+                [Environment]::SetEnvironmentVariable('ANDROID_HOME',$sdk,'User')
+                [Environment]::SetEnvironmentVariable('ANDROID_SDK_ROOT',$sdk,'User')
+                $localProps = Join-Path (Join-Path $root 'android') 'local.properties'
+                Set-Content -Path $localProps -Value ("sdk.dir=" + ($sdk -replace '\\','\\')) -Encoding ascii
+                Write-Host "Android SDK configured: $sdk" -ForegroundColor Green
+                Write-Host "local.properties: $localProps" -ForegroundColor Green
+                & (Join-Path $sdk 'platform-tools\adb.exe') devices
+            }
             'android-dev-build' {
                 Write-Host "Building and launching the real Android HostelHub app..." -ForegroundColor Cyan
                 npx expo run:android
