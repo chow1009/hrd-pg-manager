@@ -225,6 +225,7 @@ function Invoke-Action {
                 $ndk = Join-Path $sdk ("ndk\{0}" -f $ndkVersion)
                 $sourceProps = Join-Path $ndk 'source.properties'
 
+                }
                 if (-not (Test-Path $sourceProps)) {
                     Write-Host "NDK $ndkVersion is incomplete. Using resumable official Google NDK download..." -ForegroundColor Yellow
 
