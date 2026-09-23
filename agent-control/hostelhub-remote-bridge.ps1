@@ -11,12 +11,19 @@ function Get-ProjectRoot {
     $appRoot = Join-Path $env:USERPROFILE 'OneDrive\Desktop\app'
     $preferredNames = @(
         'HRD-HOSTELS-V46.6.2-CHH-FORGOT-PASSWORD-SHOW',
-        'HRD-HOSTELS-V46.6.2-CHH-FORGOT-PASSWORD'
+        'HRD-HOSTELS-V46.6.2-CHH-FINAL-2026-09-22 (1)',
+        'HRD-HOSTELS-V46.6.2-CHH-FORGOT-PASSWORD',
+        'HRD-HOSTELS-V46.6.2-TENANT-DETAIL-FIX'
     )
     foreach ($name in $preferredNames) {
         $p = Join-Path $appRoot $name
         if (Test-Path (Join-Path $p 'package.json')) { return $p }
     }
+
+    foreach ($shortRoot in @('C:\HH-HOSTELS','C:\HH-HOSTELS-QA')) {
+        if (Test-Path (Join-Path $shortRoot 'package.json')) { return $shortRoot }
+    }
+
     $candidates = Get-ChildItem -Path $appRoot -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -like 'HRD-HOSTELS-V46.6.2*' } |
         Sort-Object LastWriteTime -Descending
@@ -629,10 +636,18 @@ while ($true) {
             try {
                 Invoke-Action -Action ([string]$cmd.action)
                 Set-Content -Path $StateFile -Value $id -Encoding ascii
+                $resultFile = Join-Path $StateDir 'last-result.json'
+                @{
+                    id = $id
+                    action = [string]$cmd.action
+                    status = 'PASS'
+                    timestamp = (Get-Date).ToString('o')
+                } | ConvertTo-Json | Set-Content -Path $resultFile -Encoding utf8
                 Write-Host ("Command #{0} completed." -f $id) -ForegroundColor Green
             }
             catch {
-                Set-Content -Path $StateFile -Value $id -Encoding ascii
+                # Do not mark a failed command as completed. The controller can issue
+                # a corrected command ID after the underlying problem is fixed.
                 Write-Host ("Command #{0} FAILED: {1}" -f $id, $_.Exception.Message) -ForegroundColor Red
             }
         }
