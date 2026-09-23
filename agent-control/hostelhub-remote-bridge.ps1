@@ -445,24 +445,9 @@ function Invoke-Action {
                 Write-Host '=== HOSTELHUB FULL REGRESSION START ===' -ForegroundColor Cyan
                 if (-not (Test-Path (Join-Path $root 'package.json'))) { throw 'package.json missing.' }
 
-                Write-Host '--- 1. Dependency check ---' -ForegroundColor Yellow
-                npm install --no-audit --no-fund
-                if ($LASTEXITCODE -ne 0) { throw "npm install failed with exit code $LASTEXITCODE" }
-
-                Write-Host '--- 2. Expo doctor ---' -ForegroundColor Yellow
-                npx expo-doctor
-                if ($LASTEXITCODE -ne 0) { throw "Expo Doctor failed with exit code $LASTEXITCODE" }
-
-                Write-Host '--- 3. Release QA ---' -ForegroundColor Yellow
+                Write-Host '--- 1. Source/config checks ---' -ForegroundColor Yellow
                 $pkgText = Get-Content (Join-Path $root 'package.json') -Raw
-                if ($pkgText -match '"qa:release"') {
-                    npm run qa:release
-                    if ($LASTEXITCODE -ne 0) { throw "qa:release failed with exit code $LASTEXITCODE" }
-                } else {
-                    Write-Host 'qa:release script not present; continuing.' -ForegroundColor Yellow
-                }
-
-                Write-Host '--- 4. Login feature checks ---' -ForegroundColor Yellow
+                if ($pkgText -notmatch '"qa:release"') { Write-Host 'qa:release script not present; continuing.' -ForegroundColor Yellow }
                 $appFiles = Get-ChildItem $root -Recurse -File -Include *.js,*.jsx,*.ts,*.tsx -ErrorAction SilentlyContinue |
                     Where-Object { $_.FullName -notmatch '\\node_modules\\|\\android\\build\\|\\android\\app\\build\\' }
                 $allText = ($appFiles | ForEach-Object { Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue }) -join [Environment]::NewLine
@@ -470,143 +455,88 @@ function Invoke-Action {
                 if ($allText -notmatch 'Show|Hide') { throw 'Show/Hide password UI/source check failed.' }
                 Write-Host 'Forgot-password and Show/Hide password checks passed.' -ForegroundColor Green
 
-                Write-Host '--- 5. Expo config validation ---' -ForegroundColor Yellow
-                npx expo config --type public
-                if ($LASTEXITCODE -ne 0) { throw "Expo config validation failed with exit code $LASTEXITCODE" }
+                Write-Host '--- 2. Short QA workspace ---' -ForegroundColor Yellow
+                $qaRoot = 'C:\HH-HOSTELS-QA'
+                if (Test-Path $qaRoot) { Remove-Item $qaRoot -Recurse -Force -ErrorAction SilentlyContinue }
+                New-Item -ItemType Directory -Force -Path $qaRoot | Out-Null
+                robocopy $root $qaRoot /E /XJ /XD node_modules android\build android\app\build android\.gradle android\app\.cxx .git | Out-Host
+                if ($LASTEXITCODE -gt 7) { throw "robocopy failed with exit code $LASTEXITCODE" }
+                Push-Location $qaRoot
+                try {
+                    Write-Host 'QA workspace:' $qaRoot -ForegroundColor Cyan
 
-                Write-Host '--- 6. Android device/emulator ---' -ForegroundColor Yellow
-                $adb = Get-AdbPath
-                if (-not $adb) { throw 'ADB executable was not found.' }
-                $ready = & $adb devices | Select-String '\tdevice
-                throw "Blocked action: $Action"
-            }
-        }
-    }
-    finally {
-        Pop-Location
-    }
-}
+                    Write-Host '--- 3. Dependencies ---' -ForegroundColor Yellow
+                    npm install --no-audit --no-fund
+                    if ($LASTEXITCODE -ne 0) { throw "npm install failed with exit code $LASTEXITCODE" }
 
-function Initialize-ControlRepo {
-    $controlRoot = Join-Path $StateDir 'control-repo'
-    if (-not (Test-Path (Join-Path $controlRoot '.git'))) {
-        if (Test-Path $controlRoot) { Remove-Item $controlRoot -Recurse -Force }
-        git clone --depth 1 --branch hostelhub-agent 'https://github.com/chow1009/hrd-pg-manager.git' $controlRoot | Out-Host
-    }
-    return $controlRoot
-}
+                    Write-Host '--- 4. Expo doctor ---' -ForegroundColor Yellow
+                    npx expo-doctor
+                    if ($LASTEXITCODE -ne 0) { throw "Expo Doctor failed with exit code $LASTEXITCODE" }
 
-function Get-GhPath {
-    $candidates = @(
-        (Join-Path $env:ProgramFiles 'GitHub CLI\gh.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Programs\GitHub CLI\gh.exe')
-    )
-    $cmd = Get-Command gh -ErrorAction SilentlyContinue
-    if ($cmd) { $candidates += $cmd.Source }
-    foreach ($p in ($candidates | Select-Object -Unique)) {
-        if ($p -and (Test-Path $p)) { return $p }
-    }
-    return $null
-}
+                    Write-Host '--- 5. Release QA ---' -ForegroundColor Yellow
+                    if ((Get-Content (Join-Path $qaRoot 'package.json') -Raw) -match '"qa:release"') {
+                        npm run qa:release
+                        if ($LASTEXITCODE -ne 0) { throw "qa:release failed with exit code $LASTEXITCODE" }
+                    }
 
-function Get-CommandFile {
-    $gh = Get-GhPath
-    if (-not $gh) { throw 'GitHub CLI was not found. Install GitHub CLI and authenticate it first.' }
+                    Write-Host '--- 6. Expo config ---' -ForegroundColor Yellow
+                    npx expo config --type public
+                    if ($LASTEXITCODE -ne 0) { throw "Expo config failed with exit code $LASTEXITCODE" }
 
-    $b64 = & $gh api 'repos/chow1009/hrd-pg-manager/contents/agent-control/command.json?ref=hostelhub-agent' --jq .content
-    if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI could not read the command file.' }
+                    Write-Host '--- 7. Android device/emulator ---' -ForegroundColor Yellow
+                    $adb = Get-AdbPath
+                    if (-not $adb) { throw 'ADB executable was not found.' }
+                    $ready = & $adb devices | Select-String '\tdevice$'
+                    if (-not $ready) {
+                        $sdk = if ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } elseif ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
+                        $emu = Join-Path $sdk 'emulator\emulator.exe'
+                        $avd = (& $emu -list-avds | Where-Object { $_ -and $_ -notmatch '^INFO|^WARNING' } | Select-Object -First 1)
+                        if (-not $avd) { throw 'No Android AVD available.' }
+                        Start-Process -FilePath $emu -ArgumentList @('-avd',$avd,'-netdelay','none','-netspeed','full')
+                        & $adb wait-for-device
+                        $deadline=(Get-Date).AddMinutes(2)
+                        do { Start-Sleep -Seconds 5; $boot=(& $adb shell getprop sys.boot_completed 2>$null | Select-Object -First 1).Trim(); if($boot -eq '1'){break} } while((Get-Date) -lt $deadline)
+                        if($boot -ne '1'){throw "Emulator $avd did not finish booting."}
+                    }
+                    & $adb devices
 
-    $clean = ($b64 -join '') -replace '\s',''
-    $bytes = [Convert]::FromBase64String($clean)
-    $json = [Text.Encoding]::UTF8.GetString($bytes)
-    return ($json | ConvertFrom-Json)
-}
+                    Write-Host '--- 8. Native build + install ---' -ForegroundColor Yellow
+                    $buildLog = Join-Path $qaRoot 'android-build-regression.log'
+                    if (Test-Path $buildLog) { Remove-Item $buildLog -Force }
+                    npx expo run:android *> $buildLog
+                    $exit=$LASTEXITCODE
+                    if (Test-Path $buildLog) { Get-Content $buildLog -Tail 160 | Write-Host }
+                    if($exit -ne 0){ throw "Native Android build failed with exit code $exit." }
 
-Write-Host ''
-Write-Host 'HostelHub Agent Bridge is RUNNING' -ForegroundColor Green
-Write-Host 'Waiting for remote commands...' -ForegroundColor Cyan
-Write-Host 'Close this window only when you want to stop the bridge.' -ForegroundColor DarkGray
-Write-Host ''
+                    $installed = & $adb shell pm list packages | Select-String 'com.hrdhostels.app'
+                    if (-not $installed) { throw 'com.hrdhostels.app not installed after native build.' }
 
-while ($true) {
-    try {
-        $cmd = Get-CommandFile
-        $id = [int]$cmd.id
-        $last = 0
-        if (Test-Path $StateFile) {
-            $raw = Get-Content $StateFile -Raw -ErrorAction SilentlyContinue
-            if ($raw) { [int]::TryParse($raw.Trim(), [ref]$last) | Out-Null }
-        }
+                    Write-Host '--- 9. Native login smoke ---' -ForegroundColor Yellow
+                    & $adb shell am force-stop com.hrdhostels.app
+                    & $adb shell monkey -p com.hrdhostels.app 1
+                    Start-Sleep -Seconds 8
+                    & $adb shell uiautomator dump /sdcard/hostelhub-window.xml 2>&1 | Out-Host
+                    $xml = & $adb shell cat /sdcard/hostelhub-window.xml 2>&1
+                    $joined = $xml -join ''
+                    if (($joined -notmatch 'AI Hostel Manager') -and ($joined -notmatch 'HRD HOSTELS')) {
+                        throw 'Native login screen not detected.'
+                    }
 
-        if ($id -gt $last) {
-            Write-Host ("[{0}] Command #{1}: {2}" -f (Get-Date), $id, $cmd.action) -ForegroundColor Magenta
-            try {
-                Invoke-Action -Action ([string]$cmd.action)
-                Set-Content -Path $StateFile -Value $id -Encoding ascii
-                Write-Host ("Command #{0} completed." -f $id) -ForegroundColor Green
-            }
-            catch {
-                Set-Content -Path $StateFile -Value $id -Encoding ascii
-                Write-Host ("Command #{0} FAILED: {1}" -f $id, $_.Exception.Message) -ForegroundColor Red
-            }
-        }
-    }
-    catch {
-        Write-Host ("Bridge poll error: {0}" -f $_.Exception.Message) -ForegroundColor DarkYellow
-    }
+                    Write-Host '--- 10. Full Maestro regression ---' -ForegroundColor Yellow
+                    $maestro = Get-Command maestro -ErrorAction SilentlyContinue
+                    $flow = Join-Path $qaRoot '.maestro\08_full_regression.yml'
+                    if ($maestro -and (Test-Path $flow)) {
+                        maestro test $flow
+                        if ($LASTEXITCODE -ne 0) { throw "Maestro full regression failed with exit code $LASTEXITCODE" }
+                    } else {
+                        Write-Host 'Maestro CLI/flow not available; native smoke passed, full interactive Maestro coverage was not executed.' -ForegroundColor Yellow
+                    }
 
-    Start-Sleep -Seconds 5
-}
-
-                if (-not $ready) {
-                    Write-Host 'No ready Android device. Starting emulator...' -ForegroundColor Yellow
-                    $sdk = if ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } elseif ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
-                    $emu = Join-Path $sdk 'emulator\emulator.exe'
-                    $avd = (& $emu -list-avds | Where-Object { $_ -and $_ -notmatch '^INFO|^WARNING' } | Select-Object -First 1)
-                    if (-not $avd) { throw 'No Android AVD available.' }
-                    Start-Process -FilePath $emu -ArgumentList @('-avd',$avd,'-netdelay','none','-netspeed','full')
-                    & $adb wait-for-device
-                    $deadline=(Get-Date).AddMinutes(2)
-                    do { Start-Sleep -Seconds 5; $boot=(& $adb shell getprop sys.boot_completed 2>$null | Select-Object -First 1).Trim(); if($boot -eq '1'){break} } while((Get-Date) -lt $deadline)
-                    if($boot -ne '1'){throw "Emulator $avd did not finish booting."}
+                    Write-Host '=== HOSTELHUB FULL REGRESSION COMPLETE ===' -ForegroundColor Green
                 }
-                & $adb devices
-
-                Write-Host '--- 7. Native Android build ---' -ForegroundColor Yellow
-                $buildLog = Join-Path $root 'android-build-regression.log'
-                if (Test-Path $buildLog) { Remove-Item $buildLog -Force }
-                npx expo run:android *> $buildLog
-                $exit=$LASTEXITCODE
-                if (Test-Path $buildLog) { Get-Content $buildLog -Tail 120 | Write-Host }
-                if($exit -ne 0){ throw "Native Android build failed with exit code $exit." }
-
-                Write-Host '--- 8. Install/launch package ---' -ForegroundColor Yellow
-                $installed = & $adb shell pm list packages | Select-String 'com.hrdhostels.app'
-                if (-not $installed) { throw 'com.hrdhostels.app not installed after build.' }
-                & $adb shell am force-stop com.hrdhostels.app
-                & $adb shell monkey -p com.hrdhostels.app 1
-                Start-Sleep -Seconds 8
-
-                Write-Host '--- 9. UI smoke ---' -ForegroundColor Yellow
-                & $adb shell uiautomator dump /sdcard/hostelhub-window.xml 2>&1 | Out-Host
-                $xml = & $adb shell cat /sdcard/hostelhub-window.xml 2>&1
-                $joined = $xml -join ''
-                if (($joined -notmatch 'AI Hostel Manager') -and ($joined -notmatch 'HRD HOSTELS')) {
-                    throw 'Login screen text not detected in native app.'
+                finally {
+                    Pop-Location
                 }
-                Write-Host 'Native login screen detected.' -ForegroundColor Green
-
-                Write-Host '--- 10. Maestro full regression (when available) ---' -ForegroundColor Yellow
-                $maestro = Get-Command maestro -ErrorAction SilentlyContinue
-                $flow = Join-Path $root '.maestro\08_full_regression.yml'
-                if ($maestro -and (Test-Path $flow)) {
-                    maestro test $flow
-                    if ($LASTEXITCODE -ne 0) { throw "Maestro full regression failed with exit code $LASTEXITCODE" }
-                } else {
-                    Write-Host 'Maestro CLI/flow not available; native UI smoke passed, but full Maestro coverage was not executed.' -ForegroundColor Yellow
-                }
-
-                Write-Host '=== HOSTELHUB FULL REGRESSION COMPLETE ===' -ForegroundColor Green
             }
             default {
                 throw "Blocked action: $Action"
