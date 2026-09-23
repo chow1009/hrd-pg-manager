@@ -249,28 +249,50 @@ function Invoke-Action {
                         throw "NDK download failed with exit code $LASTEXITCODE. The partial archive is retained at $zip for resume."
                     }
 
-                    Write-Host "NDK archive downloaded. Extracting..." -ForegroundColor Cyan
-                    $extractRoot = Join-Path $env:TEMP 'hostelhub-ndk-extract'
-                    if (Test-Path $extractRoot) { Remove-Item $extractRoot -Recurse -Force }
-                    New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
+                    Write-Host "NDK archive downloaded. Validating archive..." -ForegroundColor Cyan
+                    $seven = Get-Command 7z.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue
+                    if (-not $seven) {
+                        $sevenCandidates = @(
+                            "$env:ProgramFiles\7-Zip\7z.exe",
+                            "$env:ProgramFiles\7-Zip\7z.exe",
+                            "$env:LOCALAPPDATA\Programs\7-Zip\7z.exe"
+                        )
+                        $seven = $sevenCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+                    }
+                    if (-not $seven) {
+                        Write-Host "7-Zip not found. Installing it..." -ForegroundColor Yellow
+                        winget install --id 7zip.7zip --exact --silent --accept-package-agreements --accept-source-agreements
+                        $seven = Get-ChildItem "$env:ProgramFiles" -Filter '7z.exe' -File -Recurse -ErrorAction SilentlyContinue |
+                            Select-Object -ExpandProperty FullName -First 1
+                    }
+                    if (-not $seven) { throw "7-Zip could not be located after installation." }
 
-                    $tar = Get-Command tar.exe -ErrorAction SilentlyContinue
-                    if ($tar) {
-                        & $tar.Source -xf $zip -C $extractRoot
-                        if ($LASTEXITCODE -ne 0) { throw "tar failed to extract the NDK archive." }
-                    } else {
-                        Expand-Archive -LiteralPath $zip -DestinationPath $extractRoot -Force
+                    & $seven t $zip *> (Join-Path $env:TEMP 'hostelhub-ndk-7z-test.log')
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Host "Downloaded NDK archive failed integrity test. Deleting and performing a fresh download..." -ForegroundColor Yellow
+                        Remove-Item $zip -Force -ErrorAction SilentlyContinue
+                        & curl.exe @curlArgs
+                        if ($LASTEXITCODE -ne 0) { throw "Fresh NDK download failed with exit code $LASTEXITCODE" }
+                        & $seven t $zip *> (Join-Path $env:TEMP 'hostelhub-ndk-7z-test.log')
+                        if ($LASTEXITCODE -ne 0) { throw "Fresh NDK archive failed integrity test." }
                     }
 
+                    Write-Host "NDK archive integrity verified. Extracting..." -ForegroundColor Cyan
+                    $extractRoot = Join-Path $env:TEMP 'hostelhub-ndk-extract'
+                    if (Test-Path $extractRoot) { Remove-Item $extractRoot -Recurse -Force -ErrorAction SilentlyContinue }
+                    New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
+
+                    & $seven x $zip "-o$extractRoot" -y
+                    if ($LASTEXITCODE -ne 0) { throw "7-Zip failed to extract the NDK archive." }
+
                     $prop = Get-ChildItem $extractRoot -Filter 'source.properties' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-                    if (-not $prop) { throw "Downloaded NDK archive did not contain source.properties." }
+                    if (-not $prop) { throw "Extracted NDK archive did not contain source.properties." }
 
                     $sourceDir = $prop.Directory.FullName
                     New-Item -ItemType Directory -Force -Path (Split-Path $ndk -Parent) | Out-Null
+                    if (Test-Path $ndk) { Remove-Item $ndk -Recurse -Force -ErrorAction SilentlyContinue }
                     Move-Item -Path $sourceDir -Destination $ndk -Force
                     Remove-Item $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
-                }
-
                 if (-not (Test-Path $sourceProps)) {
                     throw "NDK $ndkVersion is still incomplete at $ndk"
                 }
