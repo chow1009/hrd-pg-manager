@@ -294,6 +294,7 @@ function Invoke-Action {
                     if (Test-Path $ndk) { Remove-Item $ndk -Recurse -Force -ErrorAction SilentlyContinue }
                     Move-Item -Path $sourceDir -Destination $ndk -Force
                     Remove-Item $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
+                }
                 if (-not (Test-Path $sourceProps)) {
                     throw "NDK $ndkVersion is still incomplete at $ndk"
                 }
