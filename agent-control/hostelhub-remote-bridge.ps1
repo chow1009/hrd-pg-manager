@@ -605,14 +605,26 @@ function Get-GhPath {
 function Get-CommandFile {
     $gh = Get-GhPath
     if (-not $gh) { throw 'GitHub CLI was not found. Install GitHub CLI and authenticate it first.' }
-
     $b64 = & $gh api 'repos/chow1009/hrd-pg-manager/contents/agent-control/command.json?ref=hostelhub-agent' --jq .content
     if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI could not read the command file.' }
-
     $clean = ($b64 -join '') -replace '\s',''
     $bytes = [Convert]::FromBase64String($clean)
     $json = [Text.Encoding]::UTF8.GetString($bytes)
     return ($json | ConvertFrom-Json)
+}
+
+function Publish-RemoteResult {
+    param([int]$Id,[string]$Action,[string]$Status,[string]$Message = '')
+    $gh = Get-GhPath
+    if (-not $gh) { return }
+    $payload = @{ id=$Id; action=$Action; status=$Status; message=$Message; timestamp=(Get-Date).ToString('o'); machine=$env:COMPUTERNAME; project=(Get-ProjectRoot) } | ConvertTo-Json -Compress
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payload))
+    $api = 'repos/chow1009/hrd-pg-manager/contents/agent-control/status.json'
+    try {
+        $existing = & $gh api ($api + '?ref=hostelhub-agent') 2>$null | ConvertFrom-Json
+        if ($existing.sha) { & $gh api $api --method PUT -f message=("agent status #{0} {1}" -f $Id,$Status) -f content=$encoded -f branch='hostelhub-agent' -f sha=$existing.sha | Out-Null }
+        else { & $gh api $api --method PUT -f message=("create agent status #{0}" -f $Id) -f content=$encoded -f branch='hostelhub-agent' | Out-Null }
+    } catch { Write-Host ("Remote status publish failed: {0}" -f $_.Exception.Message) -ForegroundColor DarkYellow }
 }
 
 Write-Host ''
@@ -633,22 +645,21 @@ while ($true) {
 
         if ($id -gt $last) {
             Write-Host ("[{0}] Command #{1}: {2}" -f (Get-Date), $id, $cmd.action) -ForegroundColor Magenta
+            Publish-RemoteResult -Id $id -Action ([string]$cmd.action) -Status 'RUNNING' -Message 'Command accepted by HostelHub Agent.'
             try {
                 Invoke-Action -Action ([string]$cmd.action)
                 Set-Content -Path $StateFile -Value $id -Encoding ascii
                 $resultFile = Join-Path $StateDir 'last-result.json'
-                @{
-                    id = $id
-                    action = [string]$cmd.action
-                    status = 'PASS'
-                    timestamp = (Get-Date).ToString('o')
-                } | ConvertTo-Json | Set-Content -Path $resultFile -Encoding utf8
+                @{ id=$id; action=[string]$cmd.action; status='PASS'; timestamp=(Get-Date).ToString('o') } | ConvertTo-Json | Set-Content -Path $resultFile -Encoding utf8
+                Publish-RemoteResult -Id $id -Action ([string]$cmd.action) -Status 'PASS' -Message 'Command completed successfully.'
                 Write-Host ("Command #{0} completed." -f $id) -ForegroundColor Green
-            }
-            catch {
-                # Do not mark a failed command as completed. The controller can issue
-                # a corrected command ID after the underlying problem is fixed.
-                Write-Host ("Command #{0} FAILED: {1}" -f $id, $_.Exception.Message) -ForegroundColor Red
+            } catch {
+                $err = $_.Exception.Message
+                Set-Content -Path $StateFile -Value $id -Encoding ascii
+                $resultFile = Join-Path $StateDir 'last-result.json'
+                @{ id=$id; action=[string]$cmd.action; status='FAIL'; message=$err; timestamp=(Get-Date).ToString('o') } | ConvertTo-Json | Set-Content -Path $resultFile -Encoding utf8
+                Publish-RemoteResult -Id $id -Action ([string]$cmd.action) -Status 'FAIL' -Message $err
+                Write-Host ("Command #{0} FAILED: {1}" -f $id, $err) -ForegroundColor Red
             }
         }
     }
